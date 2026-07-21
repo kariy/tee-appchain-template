@@ -48,7 +48,7 @@ jobs:
           validate_config
           emit_github_env "$NET" "$MODE"
           echo "OUT=chain-config-$NET-$MODE" >> "$GITHUB_ENV"
-          echo "CONFIRM_WANT=INIT-$(echo "$NET-$MODE" | tr a-z A-Z)" >> "$GITHUB_ENV"
+          echo "CONFIRM_WANT=INIT-$(echo "$NET-$MODE" | tr '[:lower:]' '[:upper:]')" >> "$GITHUB_ENV"
 
       - name: Guard
         run: |
