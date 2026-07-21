@@ -15,8 +15,10 @@
 #                               registry (accepts --tee mock's software attestation).
 # Env (override any appchain.conf-derived default):
 #   SETTLEMENT_RPC_URL    settlement RPC (default: SETTLEMENT_RPC_* for NETWORK)
-#   SETTLEMENT_ADDRESS          settlement account (piltover operator / sole update_state caller)
-#   SETTLEMENT_PRIVATE_KEY      its key
+#   SETTLEMENT_ADDRESS_<NET> / SETTLEMENT_PRIVATE_KEY_<NET>
+#                         settlement account for NETWORK (<NET> = SEPOLIA | MAINNET): the
+#                         piltover operator / sole update_state caller + its key. Unsuffixed
+#                         SETTLEMENT_ADDRESS / SETTLEMENT_PRIVATE_KEY override when set.
 #   TEE_REGISTRY_ADDRESS  registry piltover's fact-registry is wired to (per-combo default)
 #   CHAIN_ID              rollup id (default: CHAIN_ID_TESTNET / CHAIN_ID_MAINNET per network)
 #   KATANA                katana binary for `init rollup` (match appchain.conf KATANA_VERSION).
@@ -38,7 +40,10 @@ CHAIN_ID="${CHAIN_ID:-$COMBO_CHAIN_ID}"
 KATANA="${KATANA:-katana}"
 OUT="${OUT:-$COMBO_CHAIN_CONFIG_DIR}"
 
-for v in SETTLEMENT_ADDRESS SETTLEMENT_PRIVATE_KEY; do [[ -n "${!v:-}" ]] || { echo "error: set $v" >&2; exit 2; }; done
+resolve_settlement_account "$NETWORK"
+for v in SETTLEMENT_ADDRESS SETTLEMENT_PRIVATE_KEY; do
+  [[ -n "${!v:-}" ]] || { echo "error: set ${v}_$(echo "$NETWORK" | tr '[:lower:]' '[:upper:]') (or $v)" >&2; exit 2; }
+done
 command -v "$KATANA" >/dev/null 2>&1 || { echo "error: katana not found: $KATANA" >&2; exit 2; }
 
 echo "→ init rollup network=$NETWORK mode=$MODE id=$CHAIN_ID registry=$TEE_REGISTRY_ADDRESS"

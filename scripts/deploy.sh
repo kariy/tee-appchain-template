@@ -17,7 +17,10 @@
 # Usage:  [NETWORK=… MODE=…] scripts/deploy.sh <user@host>
 # Env (all appchain.conf-derived defaults overridable):
 #   NETWORK / MODE                   see above
-#   SETTLEMENT_ADDRESS / SETTLEMENT_PRIVATE_KEY  settlement account (embedded-settlement runtime) — required
+#   SETTLEMENT_ADDRESS_<NET> / SETTLEMENT_PRIVATE_KEY_<NET>  settlement account for the
+#                                    combo's network (<NET> = SEPOLIA | MAINNET) — required.
+#                                    Unsuffixed SETTLEMENT_ADDRESS / SETTLEMENT_PRIVATE_KEY
+#                                    override the per-network pair when set.
 #   PROVER_KEY                       SP1 prover-network key → real Groth16 (enclave; absent ⇒ Mock)
 #   TEE_REGISTRY_ADDRESS             on-chain TEE registry (per-combo default)
 #   KATANA_VERSION                   katana binary release to install (mock mode; conf pin)
@@ -88,7 +91,10 @@ if [ -n "${RENDER_ONLY:-}" ]; then
   exit 0
 fi
 
-for v in SETTLEMENT_ADDRESS SETTLEMENT_PRIVATE_KEY; do [[ -n "${!v:-}" ]] || { echo "error: set $v" >&2; exit 2; }; done
+resolve_settlement_account "$NETWORK"
+for v in SETTLEMENT_ADDRESS SETTLEMENT_PRIVATE_KEY; do
+  [[ -n "${!v:-}" ]] || { echo "error: set ${v}_$(echo "$NETWORK" | tr '[:lower:]' '[:upper:]') (or $v)" >&2; exit 2; }
+done
 # SP1 prover key (enclave real proving) — normalize to 0x-prefixed hex; ignored in mock mode.
 [[ -n "${PROVER_KEY:-}" && "${PROVER_KEY}" != 0x* ]] && PROVER_KEY="0x${PROVER_KEY}"
 [[ "$MODE" = enclave && -z "${PROVER_KEY:-}" ]] && echo "→ warning: PROVER_KEY unset — enclave will run TeeProver::Mock (no real SP1 proofs)" >&2

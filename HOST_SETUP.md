@@ -46,9 +46,10 @@ Both must resolve before `deploy.sh` / `deploy-monitoring.sh` run certbot.
 
 ## 5. GitHub secrets / vars
 
-See the full table in [`SETUP.md`](SETUP.md). Short version — secrets: `SETTLEMENT_ADDRESS`,
-`SETTLEMENT_PRIVATE_KEY` (+ optional `*_MAINNET`), `PROVER_KEY`, `DEPLOY_SSH_KEY`,
-`DEPLOY_KNOWN_HOSTS`; vars: `DEPLOY_HOST`, `DEPLOY_USER`.
+See the full table in [`SETUP.md`](SETUP.md). Short version — secrets:
+`SETTLEMENT_ADDRESS_SEPOLIA` / `SETTLEMENT_PRIVATE_KEY_SEPOLIA` (and the `_MAINNET` pair
+for mainnet), `PROVER_KEY`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`; vars: `DEPLOY_HOST`,
+`DEPLOY_USER`.
 
 ## 6. Sidecar binaries (paymaster + VRF) — **mock mode only**
 

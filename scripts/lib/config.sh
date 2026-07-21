@@ -96,6 +96,17 @@ resolve_combo() {
   esac
 }
 
+# resolve_settlement_account <network> — fill SETTLEMENT_ADDRESS / SETTLEMENT_PRIVATE_KEY
+# from the per-network vars (SETTLEMENT_ADDRESS_SEPOLIA / _MAINNET, same for the key)
+# unless already set explicitly. Callers still validate non-emptiness themselves.
+resolve_settlement_account() {
+  local net_uc a k
+  net_uc=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+  a="SETTLEMENT_ADDRESS_$net_uc"; k="SETTLEMENT_PRIVATE_KEY_$net_uc"
+  SETTLEMENT_ADDRESS="${SETTLEMENT_ADDRESS:-${!a:-}}"
+  SETTLEMENT_PRIVATE_KEY="${SETTLEMENT_PRIVATE_KEY:-${!k:-}}"
+}
+
 # export_combo_matrix — exports flattened per-combo vars for envsubst templates:
 #   RPC_PORT_SEPOLIA_MOCK, …, METRICS_PORT_*, UNIT_* (combo uppercased, '-' → '_').
 export_combo_matrix() {
