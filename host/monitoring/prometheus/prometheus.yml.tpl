@@ -1,7 +1,7 @@
 # Prometheus scrape config template for the appchain host. Rendered by
-# scripts/deploy-monitoring.sh: ${KATANA_SCRAPE_TARGETS} / ${BLACKBOX_SCRAPE_TARGETS} expand
-# to one static_configs entry per MONITORED_COMBOS member (see scripts/lib/config.sh),
-# labeled deployment/network/mode/unit. All targets are loopback:
+# scripts/deploy-monitoring.sh: the KATANA_SCRAPE_TARGETS / BLACKBOX_SCRAPE_TARGETS
+# placeholders below expand to one static_configs entry per MONITORED_COMBOS member
+# (see scripts/lib/config.sh), labeled deployment/network/mode/unit. All targets are loopback:
 #   node_exporter  127.0.0.1:9100        — host CPU/mem/disk/net
 #   katana         127.0.0.1:<metrics>   — one port per monitored combo
 #   blackbox       probes each combo's RPC health endpoint (GET / → {"health":true})

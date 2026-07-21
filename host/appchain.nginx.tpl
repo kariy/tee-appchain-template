@@ -1,5 +1,5 @@
-# nginx vhost template — the host-level appchain router: https://${APPCHAIN_DOMAIN}
-# Rendered by scripts/deploy.sh (envsubst; ${RPC_PORT_*}/${APPCHAIN_DOMAIN} substituted,
+# nginx vhost template — the host-level appchain router (https://<APPCHAIN_DOMAIN>).
+# Rendered by scripts/deploy.sh (envsubst; RPC_PORT_*/APPCHAIN_DOMAIN substituted,
 # nginx runtime vars like $host/$request_uri pass through). Path-routes to the appchain
 # deployments on this host (all loopback-bound):
 #   /sepolia/rpc      → sepolia-enclave (SEV-SNP enclave, settles Sepolia)

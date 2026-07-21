@@ -60,6 +60,15 @@ done
 # leak check: no instance-specific strings in rendered output
 if grep -rEi '185\.26|cartridge' "$OUT"; then bad "instance-specific string leaked into rendered output"; fi
 
+# rendered YAML must parse (catches fragment/indentation bugs without docker)
+if python3 -c 'import yaml' 2>/dev/null; then
+  for y in "$OUT/monitoring/prometheus.yml" "$OUT/monitoring/promtail.yml"; do
+    python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" "$y" || bad "rendered YAML invalid: $y"
+  done
+else
+  say "python3-yaml not installed — rendered-YAML parse skipped"
+fi
+
 # 4. docker-based config checks (graceful skip)
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   say "promtool check config…"

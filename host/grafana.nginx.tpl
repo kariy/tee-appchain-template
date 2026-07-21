@@ -1,5 +1,5 @@
-# nginx vhost template — Grafana for the appchain monitoring stack: https://${GRAFANA_DOMAIN}
-# → 127.0.0.1:${GRAFANA_PORT} (the docker Grafana, loopback-bound; :3000 is the mock's
+# nginx vhost template — Grafana for the appchain monitoring stack (https://<GRAFANA_DOMAIN>
+# → the loopback docker Grafana on GRAFANA_PORT; :3000 is the mock's
 # vrf-server). Rendered + installed by scripts/deploy-monitoring.sh; certbot issues the cert.
 # The domain's DNS record must point at the host.
 

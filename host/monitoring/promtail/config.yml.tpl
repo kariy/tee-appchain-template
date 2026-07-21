@@ -1,7 +1,7 @@
 # Promtail config template — rendered by scripts/deploy-monitoring.sh (envsubst substitutes
-# ${CHAIN_NAME}/${HOST_LABEL}; promtail's own $1 capture reference passes through).
+# CHAIN_NAME/HOST_LABEL; promtail's own $1 capture reference passes through).
 # Ships the host systemd journal to Loki, keeping only the appchain units
-# (${CHAIN_NAME}-<network>-<mode>.service) and mapping each unit to its `deployment`
+# (<chain-name>-<network>-<mode>.service) and mapping each unit to its `deployment`
 # label (<network>-<mode>) with one capture rule. katana logs `--log.stdout.format json`,
 # so a json pipeline stage lifts `level`/`target` into labels/fields (non-JSON firmware
 # lines from the enclave serial pass through untouched).
@@ -31,7 +31,7 @@ scrape_configs:
       - source_labels: ['unit']
         regex: '${CHAIN_NAME}-(sepolia|mainnet)-(mock|enclave)\.service'
         action: keep
-      # unit → deployment: the unit name is ${CHAIN_NAME}-<network>-<mode>, the deployment
+      # unit → deployment: the unit name is <chain-name>-<network>-<mode>, the deployment
       # label is <network>-<mode> — one anchored capture covers every combo.
       - source_labels: ['unit']
         regex: '${CHAIN_NAME}-((sepolia|mainnet)-(mock|enclave))\.service'
