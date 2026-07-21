@@ -17,7 +17,7 @@
 # Usage:  [NETWORK=… MODE=…] scripts/deploy.sh <user@host>
 # Env (all appchain.conf-derived defaults overridable):
 #   NETWORK / MODE                   see above
-#   SAYA_ADDRESS / SAYA_PRIVATE_KEY  settlement account (embedded-settlement runtime) — required
+#   SETTLEMENT_ADDRESS / SETTLEMENT_PRIVATE_KEY  settlement account (embedded-settlement runtime) — required
 #   PROVER_KEY                       SP1 prover-network key → real Groth16 (enclave; absent ⇒ Mock)
 #   TEE_REGISTRY_ADDRESS             on-chain TEE registry (per-combo default)
 #   KATANA_VERSION                   katana binary release to install (mock mode; conf pin)
@@ -88,7 +88,7 @@ if [ -n "${RENDER_ONLY:-}" ]; then
   exit 0
 fi
 
-for v in SAYA_ADDRESS SAYA_PRIVATE_KEY; do [[ -n "${!v:-}" ]] || { echo "error: set $v" >&2; exit 2; }; done
+for v in SETTLEMENT_ADDRESS SETTLEMENT_PRIVATE_KEY; do [[ -n "${!v:-}" ]] || { echo "error: set $v" >&2; exit 2; }; done
 # SP1 prover key (enclave real proving) — normalize to 0x-prefixed hex; ignored in mock mode.
 [[ -n "${PROVER_KEY:-}" && "${PROVER_KEY}" != 0x* ]] && PROVER_KEY="0x${PROVER_KEY}"
 [[ "$MODE" = enclave && -z "${PROVER_KEY:-}" ]] && echo "→ warning: PROVER_KEY unset — enclave will run TeeProver::Mock (no real SP1 proofs)" >&2
@@ -128,7 +128,7 @@ rsync -az -e ssh "$RENDER_DIR/" "$SSH_TARGET:$BASE/versions/$SHA/rendered/"
 #    + tee-registry (+ prover-key for enclave real proving). chmod 600; never committed.
 say "chain-config + embedded-settlement runtime (registry${PROVER_KEY:+ + prover-key})…"
 "${SSH[@]}" BASE="$BASE" CHAIN_CONFIG_SRC="$CHAIN_CONFIG_SRC" MODE="$MODE" \
-  SAYA_ADDRESS="$SAYA_ADDRESS" SAYA_PRIVATE_KEY="$SAYA_PRIVATE_KEY" \
+  SETTLEMENT_ADDRESS="$SETTLEMENT_ADDRESS" SETTLEMENT_PRIVATE_KEY="$SETTLEMENT_PRIVATE_KEY" \
   PROVER_KEY="${PROVER_KEY:-}" TEE_REGISTRY_ADDRESS="$TEE_REGISTRY_ADDRESS" \
   SETTLEMENT_BATCH_SIZE="$SETTLEMENT_BATCH_SIZE" IDLE_FLUSH_SECS="$IDLE_FLUSH_SECS" 'bash -s' <<'EOF'
 set -e
@@ -139,8 +139,8 @@ fi
 if ! grep -q '^\[settlement.runtime\]' "$BASE/chain-config/config.toml"; then
   {
     printf '\n[settlement.runtime]\n'
-    printf 'account-address = "%s"\n' "$SAYA_ADDRESS"
-    printf 'account-private-key = "%s"\n' "$SAYA_PRIVATE_KEY"
+    printf 'account-address = "%s"\n' "$SETTLEMENT_ADDRESS"
+    printf 'account-private-key = "%s"\n' "$SETTLEMENT_PRIVATE_KEY"
     printf 'tee-registry = "%s"\n' "$TEE_REGISTRY_ADDRESS"
     [ "$MODE" = enclave ] && [ -n "$PROVER_KEY" ] && printf 'prover-key = "%s"\n' "$PROVER_KEY"
     printf 'batch-size = %s\n' "$SETTLEMENT_BATCH_SIZE"

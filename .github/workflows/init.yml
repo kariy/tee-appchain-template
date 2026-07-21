@@ -6,7 +6,7 @@ name: Init Rollup (one-time)
 #   enclave → wires piltover to the REAL AMDTeeRegistry;  mock → the mock registry.
 # Chain id, settlement RPC, and registry derive from appchain.conf (scripts/lib/config.sh).
 #
-# Secrets: SAYA_ADDRESS, SAYA_PRIVATE_KEY (+ SAYA_ADDRESS_MAINNET/SAYA_PRIVATE_KEY_MAINNET
+# Secrets: SETTLEMENT_ADDRESS, SETTLEMENT_PRIVATE_KEY (+ SETTLEMENT_ADDRESS_MAINNET/SETTLEMENT_PRIVATE_KEY_MAINNET
 #          optional, used for network=mainnet if set)
 
 on:
@@ -69,9 +69,9 @@ jobs:
       - name: Init rollup (deploys piltover — gas)
         env:
           # NETWORK/MODE/SETTLEMENT_RPC_URL/TEE_REGISTRY_ADDRESS/CHAIN_ID/OUT come from
-          # $GITHUB_ENV (Resolve). Saya prefers the mainnet-specific secret when set.
-          SAYA_ADDRESS: ${{ (github.event.inputs.network == 'mainnet' && secrets.SAYA_ADDRESS_MAINNET) || secrets.SAYA_ADDRESS }}
-          SAYA_PRIVATE_KEY: ${{ (github.event.inputs.network == 'mainnet' && secrets.SAYA_PRIVATE_KEY_MAINNET) || secrets.SAYA_PRIVATE_KEY }}
+          # $GITHUB_ENV (Resolve). The settlement account prefers the mainnet-specific secret when set.
+          SETTLEMENT_ADDRESS: ${{ (github.event.inputs.network == 'mainnet' && secrets.SETTLEMENT_ADDRESS_MAINNET) || secrets.SETTLEMENT_ADDRESS }}
+          SETTLEMENT_PRIVATE_KEY: ${{ (github.event.inputs.network == 'mainnet' && secrets.SETTLEMENT_PRIVATE_KEY_MAINNET) || secrets.SETTLEMENT_PRIVATE_KEY }}
           KATANA: katana
         run: |
           chmod +x scripts/init.sh

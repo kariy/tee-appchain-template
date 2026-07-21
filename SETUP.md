@@ -45,8 +45,8 @@ Settings → Secrets and variables → Actions:
 
 | Kind | Name | Value |
 |---|---|---|
-| secret | `SAYA_ADDRESS` / `SAYA_PRIVATE_KEY` | settlement account (Sepolia; also mainnet unless `*_MAINNET` set) |
-| secret | `SAYA_ADDRESS_MAINNET` / `SAYA_PRIVATE_KEY_MAINNET` | optional mainnet-specific settlement account |
+| secret | `SETTLEMENT_ADDRESS` / `SETTLEMENT_PRIVATE_KEY` | settlement account (Sepolia; also mainnet unless `*_MAINNET` set) |
+| secret | `SETTLEMENT_ADDRESS_MAINNET` / `SETTLEMENT_PRIVATE_KEY_MAINNET` | optional mainnet-specific settlement account |
 | secret | `PROVER_KEY` | SP1 prover-network key (enclave; absent ⇒ mock proving) |
 | secret | `DEPLOY_SSH_KEY` | the private deploy key (contents of `deploy_key`) |
 | secret | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan <host>` output |

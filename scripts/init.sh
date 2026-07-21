@@ -15,8 +15,8 @@
 #                               registry (accepts --tee mock's software attestation).
 # Env (override any appchain.conf-derived default):
 #   SETTLEMENT_RPC_URL    settlement RPC (default: SETTLEMENT_RPC_* for NETWORK)
-#   SAYA_ADDRESS          settlement account (piltover operator / sole update_state caller)
-#   SAYA_PRIVATE_KEY      its key
+#   SETTLEMENT_ADDRESS          settlement account (piltover operator / sole update_state caller)
+#   SETTLEMENT_PRIVATE_KEY      its key
 #   TEE_REGISTRY_ADDRESS  registry piltover's fact-registry is wired to (per-combo default)
 #   CHAIN_ID              rollup id (default: CHAIN_ID_TESTNET / CHAIN_ID_MAINNET per network)
 #   KATANA                katana binary for `init rollup` (match appchain.conf KATANA_VERSION).
@@ -38,7 +38,7 @@ CHAIN_ID="${CHAIN_ID:-$COMBO_CHAIN_ID}"
 KATANA="${KATANA:-katana}"
 OUT="${OUT:-$COMBO_CHAIN_CONFIG_DIR}"
 
-for v in SAYA_ADDRESS SAYA_PRIVATE_KEY; do [[ -n "${!v:-}" ]] || { echo "error: set $v" >&2; exit 2; }; done
+for v in SETTLEMENT_ADDRESS SETTLEMENT_PRIVATE_KEY; do [[ -n "${!v:-}" ]] || { echo "error: set $v" >&2; exit 2; }; done
 command -v "$KATANA" >/dev/null 2>&1 || { echo "error: katana not found: $KATANA" >&2; exit 2; }
 
 echo "→ init rollup network=$NETWORK mode=$MODE id=$CHAIN_ID registry=$TEE_REGISTRY_ADDRESS"
@@ -58,8 +58,8 @@ for i in $(seq 1 "$attempts"); do
   if "$KATANA" init rollup \
       --id "$CHAIN_ID" \
       --settlement-chain "$SETTLEMENT_RPC_URL" \
-      --settlement-account-address "$SAYA_ADDRESS" \
-      --settlement-account-private-key "$SAYA_PRIVATE_KEY" \
+      --settlement-account-address "$SETTLEMENT_ADDRESS" \
+      --settlement-account-private-key "$SETTLEMENT_PRIVATE_KEY" \
       --tee \
       --tee-registry-address "$TEE_REGISTRY_ADDRESS" \
       --output-path "$tmp"; then

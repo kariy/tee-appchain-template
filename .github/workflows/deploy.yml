@@ -7,7 +7,7 @@ name: Deploy appchain
 # image) and does NO nginx; MODE=mock installs the pinned binary + the host nginx router.
 #
 # Secrets: DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS,
-#          SAYA_ADDRESS, SAYA_PRIVATE_KEY (+ *_MAINNET optional, used for network=mainnet),
+#          SETTLEMENT_ADDRESS, SETTLEMENT_PRIVATE_KEY (+ *_MAINNET optional, used for network=mainnet),
 #          PROVER_KEY  (SP1 prover-network key → real Groth16; enclave only; absent ⇒ Mock)
 # Vars:    DEPLOY_HOST, DEPLOY_USER (fall back to appchain.conf, then ubuntu)
 
@@ -79,9 +79,9 @@ jobs:
         env:
           # NETWORK/MODE come from $GITHUB_ENV (Resolve); deploy.sh re-derives the combo from
           # appchain.conf. Blank version inputs fall through to the conf pins (empty env vars
-          # are treated as unset by scripts/lib/config.sh). Saya prefers *_MAINNET when set.
-          SAYA_ADDRESS: ${{ (github.event.inputs.network == 'mainnet' && secrets.SAYA_ADDRESS_MAINNET) || secrets.SAYA_ADDRESS }}
-          SAYA_PRIVATE_KEY: ${{ (github.event.inputs.network == 'mainnet' && secrets.SAYA_PRIVATE_KEY_MAINNET) || secrets.SAYA_PRIVATE_KEY }}
+          # are treated as unset by scripts/lib/config.sh). The settlement account prefers *_MAINNET when set.
+          SETTLEMENT_ADDRESS: ${{ (github.event.inputs.network == 'mainnet' && secrets.SETTLEMENT_ADDRESS_MAINNET) || secrets.SETTLEMENT_ADDRESS }}
+          SETTLEMENT_PRIVATE_KEY: ${{ (github.event.inputs.network == 'mainnet' && secrets.SETTLEMENT_PRIVATE_KEY_MAINNET) || secrets.SETTLEMENT_PRIVATE_KEY }}
           PROVER_KEY: ${{ secrets.PROVER_KEY }}
           KATANA_TEE_VERSION: ${{ github.event.inputs.katana_tee_version }}
           KATANA_VERSION: ${{ github.event.inputs.katana_version }}
