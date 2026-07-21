@@ -69,14 +69,15 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   docker run --rm -v "$OUT/monitoring/promtail.yml:/c.yml:ro" \
     grafana/promtail:3.3.2 -config.file=/c.yml -check-syntax || bad "promtail config invalid"
   say "nginx -t…"
-  # strip cert lines (no certs in CI) and wrap the vhosts in a minimal shim conf
-  mkdir -p "$OUT/nginx"
+  # strip cert lines (no certs in CI) and wrap the vhosts in a minimal shim conf.
+  # The shim must live OUTSIDE the included vhosts dir or the include glob eats it.
+  mkdir -p "$OUT/nginx/vhosts"
   for f in appchain.nginx grafana.nginx; do
-    sed '/ssl_certificate/d' "$OUT/$f" > "$OUT/nginx/$f.conf"
+    sed '/ssl_certificate/d' "$OUT/$f" > "$OUT/nginx/vhosts/$f.conf"
   done
   printf 'events {}\nhttp { include /etc/nginx/vhosts/*.conf; }\n' > "$OUT/nginx/shim.conf"
   docker run --rm -v "$OUT/nginx/shim.conf:/etc/nginx/nginx.conf:ro" \
-    -v "$OUT/nginx:/etc/nginx/vhosts:ro" nginx:stable nginx -t || bad "nginx vhosts invalid"
+    -v "$OUT/nginx/vhosts:/etc/nginx/vhosts:ro" nginx:stable nginx -t || bad "nginx vhosts invalid"
   say "docker compose config…"
   compose_env="$OUT/compose.env"
   printf 'GRAFANA_DOMAIN=%s\nGRAFANA_PORT=%s\nGRAFANA_ADMIN_PASSWORD=x\nSLACK_WEBHOOK_URL=\nSUCCINCT_PROVER_ACCOUNTS=\nSTARKNET_SETTLEMENT_ACCOUNTS=\nAPPCHAIN_RPC_TARGETS=\n' \
