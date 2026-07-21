@@ -42,6 +42,10 @@ settlement) → **sepolia-enclave** (real TEE + real proofs) → **mainnet-encla
 The full step-by-step checklist (with secrets table and verification curls) is in
 [`SETUP.md`](SETUP.md).
 
+Using [Claude Code](https://claude.com/claude-code)? The repo ships a **`/setup-appchain`
+skill** (`.claude/skills/setup-appchain/`) that drives this whole flow interactively —
+open Claude Code in your new repo and ask it to "set up my appchain".
+
 ## Layout
 
 | Path | What |
