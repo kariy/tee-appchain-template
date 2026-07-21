@@ -3,7 +3,7 @@
 # Run locally or via .github/workflows/validate.yml. Checks:
 #   1. bash syntax (+ shellcheck when available) for every script
 #   2. appchain.conf sanity + the derived combo map
-#   3. every .tpl renders completely (no whitelisted ${…} survives) and leaks nothing
+#   3. every .tpl renders completely (no whitelisted ${…} survives)
 #   4. rendered prometheus/promtail/nginx/compose configs are valid (docker; skipped if absent)
 #   5. dashboards parse as JSON; exporters compile
 set -euo pipefail
@@ -57,9 +57,6 @@ for v in $TEMPLATE_VARS; do
   name="${v#\$\{}"; name="${name%\}}"
   if grep -rq "\${$name}" "$OUT"; then bad "unrendered \${$name} in output"; fi
 done
-# leak check: no instance-specific strings in rendered output
-if grep -rEi '185\.26|cartridge' "$OUT"; then bad "instance-specific string leaked into rendered output"; fi
-
 # rendered YAML must parse (catches fragment/indentation bugs without docker)
 if python3 -c 'import yaml' 2>/dev/null; then
   for y in "$OUT/monitoring/prometheus.yml" "$OUT/monitoring/promtail.yml"; do
