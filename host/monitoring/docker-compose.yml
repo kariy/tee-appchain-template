@@ -1,0 +1,129 @@
+# Self-contained monitoring stack for the appchain host: Prometheus (metrics),
+# Loki (logs), Grafana (dashboards + Slack alerting), node_exporter (host resources),
+# blackbox_exporter (per-instance RPC health probes), promtail (journald → Loki).
+#
+# Everything uses host networking and binds loopback; ufw exposes only 80/443, so none of the
+# ports below are reachable off-box. Grafana is reached via the nginx TLS vhost
+# (host/grafana.nginx.tpl). Brought up by scripts/deploy-monitoring.sh, which renders the
+# combo-dependent configs (prometheus.yml, promtail config) and writes ./.env with the
+# secrets (SLACK_WEBHOOK_URL, GRAFANA_ADMIN_PASSWORD) + derived values (GRAFANA_DOMAIN,
+# GRAFANA_PORT, APPCHAIN_RPC_TARGETS) — never committed.
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: appchain-prometheus
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.listen-address=127.0.0.1:9090
+      - --web.enable-lifecycle
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: appchain-loki
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/config.yml
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: appchain-promtail
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - promtail-positions:/promtail
+    command: -config.file=/etc/promtail/config.yml
+    depends_on: [loki]
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    container_name: appchain-node-exporter
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=127.0.0.1:9100
+      - --collector.systemd
+      - --collector.processes
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.26.0
+    container_name: appchain-blackbox
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./blackbox/config.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+      - --web.listen-address=127.0.0.1:9115
+
+  succinct-exporter:
+    build: ./succinct-exporter
+    image: appchain-succinct-exporter:local
+    container_name: appchain-succinct-exporter
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # Succinct prover-network accounts to alert on, as `network=address` (from ./.env).
+      - SUCCINCT_PROVER_ACCOUNTS=${SUCCINCT_PROVER_ACCOUNTS:-}
+      - PORT=9116
+      - INTERVAL=60
+
+  starknet-exporter:
+    build: ./starknet-exporter
+    image: appchain-starknet-exporter:local
+    container_name: appchain-starknet-exporter
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # Settlement (saya) accounts to watch, as `network=address` (from ./.env). The
+      # network label doubles as the RPC path segment (mainnet/sepolia).
+      - STARKNET_SETTLEMENT_ACCOUNTS=${STARKNET_SETTLEMENT_ACCOUNTS:-}
+      # Appchain RPC endpoints polled for the head block, as `deployment=url`. Written to
+      # ./.env by deploy-monitoring.sh from MONITORED_COMBOS; empty ⇒ no head polling.
+      - APPCHAIN_RPC_TARGETS=${APPCHAIN_RPC_TARGETS:-}
+      - PORT=9117
+      - INTERVAL=60
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    container_name: appchain-grafana
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - GF_SERVER_HTTP_ADDR=127.0.0.1
+      # Default 3001 (not 3000): the mock's vrf-server sidecar already binds 127.0.0.1:3000.
+      - GF_SERVER_HTTP_PORT=${GRAFANA_PORT:-3001}
+      - GF_SERVER_ROOT_URL=https://${GRAFANA_DOMAIN:-localhost}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      # Referenced by grafana/provisioning/alerting/contactpoints.yml (env expansion).
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus, loki]
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+  promtail-positions:

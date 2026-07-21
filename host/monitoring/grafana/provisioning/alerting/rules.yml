@@ -1,0 +1,206 @@
+apiVersion: 1
+# Grafana-managed alert rules. Each rule: refId A = query (instant), refId C = threshold → condition.
+groups:
+  - orgId: 1
+    name: appchain-health
+    folder: Appchain
+    interval: 1m
+    rules:
+      - uid: appchain-rpc-down
+        title: Appchain RPC down
+        condition: C
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'RPC for {{ $labels.deployment }} is down (blackbox probe_success < 1).'
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'probe_success{job="blackbox-rpc"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: appchain-target-down
+        title: Appchain metrics target down
+        condition: C
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Prometheus target down: job={{ $labels.job }} {{ $labels.deployment }}{{ $labels.instance }}.'
+        noDataState: NoData
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'up{job=~"katana|node"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: appchain-disk-low
+        title: Appchain host disk low
+        condition: C
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Less than 15% free on {{ $labels.mountpoint }}.'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: '100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [15] }
+
+      - uid: appchain-mem-high
+        title: Appchain host memory high
+        condition: C
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Host memory below 8% available.'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: '100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [8] }
+
+      - uid: appchain-settlement-failing
+        title: Appchain settlement failures
+        condition: C
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Settlement failures on {{ $labels.deployment }} (katana_settlement_settlement_failures_total increasing).'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'increase(katana_settlement_settlement_failures_total[10m])' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: appchain-log-errors
+        title: Appchain log error spike
+        condition: C
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Error/panic log spike on {{ $labels.deployment }} (>10 lines in 5m).'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              instant: true
+              expr: 'sum by (deployment) (count_over_time({job="systemd-journal"} |~ `(?i)panic|wrong program|"level":"ERROR"` [5m]))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [10] }
+
+      - uid: appchain-prover-balance-low
+        title: Succinct prover balance low
+        condition: C
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Succinct prover $PROVE balance low (< 10) for {{ $labels.network }} ({{ $labels.account }}) — top up before proving stalls.'
+          # Consumed by the compact Slack template (contactpoints.yml).
+          balance: '{{ printf "%.2f" $values.A.Value }} PROVE'
+          threshold: '10 PROVE'
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'succinct_prover_balance_prove' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [10] }
+
+      - uid: appchain-settlement-balance-low
+        title: Settlement account STRK balance low
+        condition: C
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Settlement (saya) STRK balance low (< 100) for {{ $labels.network }} ({{ $labels.account }}) — update_state needs ~18 STRK resource-bounds headroom to pass validation; top up before settlement stalls (and burns PROVE re-proving, until katana caches proofs across retries).'
+          # Consumed by the compact Slack template (contactpoints.yml).
+          balance: '{{ printf "%.2f" $values.A.Value }} STRK'
+          threshold: '100 STRK'
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'starknet_settlement_balance_strk' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [100] }

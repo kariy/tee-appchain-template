@@ -1,0 +1,164 @@
+name: Deploy appchain
+
+# Deploys an appchain combo to the host, on a per-(network,mode) unit/port so all coexist.
+# Unit names, ports, and registries derive from appchain.conf (scripts/lib/config.sh):
+#   unit ${CHAIN_NAME}-<network>-<mode>, rpc BASE_PORT+idx, metrics METRICS_BASE_PORT+idx.
+# MODE=enclave installs NO host katana binary (the enclave boots the self-contained TEE-VM
+# image) and does NO nginx; MODE=mock installs the pinned binary + the host nginx router.
+#
+# Secrets: DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS,
+#          SAYA_ADDRESS, SAYA_PRIVATE_KEY (+ *_MAINNET optional, used for network=mainnet),
+#          PROVER_KEY  (SP1 prover-network key → real Groth16; enclave only; absent ⇒ Mock)
+# Vars:    DEPLOY_HOST, DEPLOY_USER (fall back to appchain.conf, then ubuntu)
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Settlement network'
+        required: true
+        type: choice
+        default: sepolia
+        options: [sepolia, mainnet]
+      mode:
+        description: 'enclave (SEV-SNP VM, real SP1) or mock (bare katana --tee mock)'
+        required: true
+        type: choice
+        default: enclave
+        options: [enclave, mock]
+      host:
+        description: 'SSH target (overrides vars.DEPLOY_HOST / appchain.conf)'
+        required: false
+        default: ''
+      katana_tee_version:
+        description: 'TEE-VM image tag (enclave mode; blank = appchain.conf pin)'
+        required: false
+        default: ''
+      katana_version:
+        description: 'katana binary release (mock mode; blank = appchain.conf pin)'
+        required: false
+        default: ''
+      vcpus:
+        description: 'Enclave vCPU count (blank = host CPU count; lower it to share the host across enclaves)'
+        required: false
+        default: ''
+      settlement_batch_size:
+        description: 'Blocks per update_state batch (blank = 120). One SP1 proof + one update_state covers the whole batch; idle-flush (IDLE_FLUSH_SECS, 600) caps the time between settlements on a slow chain.'
+        required: false
+        default: ''
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve combo (appchain.conf)
+        run: |
+          source scripts/lib/config.sh
+          validate_config
+          emit_github_env "${{ github.event.inputs.network }}" "${{ github.event.inputs.mode }}"
+          print_combo_map
+
+      - name: Assert chain-config exists
+        run: |
+          [[ -s "$CHAIN_CONFIG_DIR/config.toml" ]] || { echo "ERROR: no $CHAIN_CONFIG_DIR — run the Init workflow (network=${{ github.event.inputs.network }}, mode=${{ github.event.inputs.mode }}) first." >&2; exit 1; }
+          ls -la "$CHAIN_CONFIG_DIR/"
+
+      - name: SSH setup
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          # NETWORK/MODE come from $GITHUB_ENV (Resolve); deploy.sh re-derives the combo from
+          # appchain.conf. Blank version inputs fall through to the conf pins (empty env vars
+          # are treated as unset by scripts/lib/config.sh). Saya prefers *_MAINNET when set.
+          SAYA_ADDRESS: ${{ (github.event.inputs.network == 'mainnet' && secrets.SAYA_ADDRESS_MAINNET) || secrets.SAYA_ADDRESS }}
+          SAYA_PRIVATE_KEY: ${{ (github.event.inputs.network == 'mainnet' && secrets.SAYA_PRIVATE_KEY_MAINNET) || secrets.SAYA_PRIVATE_KEY }}
+          PROVER_KEY: ${{ secrets.PROVER_KEY }}
+          KATANA_TEE_VERSION: ${{ github.event.inputs.katana_tee_version }}
+          KATANA_VERSION: ${{ github.event.inputs.katana_version }}
+          VCPU_COUNT: ${{ github.event.inputs.vcpus }}
+          SETTLEMENT_BATCH_SIZE: ${{ github.event.inputs.settlement_batch_size }}
+        run: |
+          host="${{ github.event.inputs.host }}"
+          [[ -z "$host" ]] && host="${{ vars.DEPLOY_HOST }}"
+          [[ -z "$host" ]] && host="$CONF_DEPLOY_HOST"
+          user="${{ vars.DEPLOY_USER }}"; [[ -z "$user" ]] && user="$CONF_DEPLOY_USER"
+          [[ -n "$host" ]] || { echo "ERROR: no host (set vars.DEPLOY_HOST, appchain.conf DEPLOY_HOST, or the host input)" >&2; exit 1; }
+          [[ "$MODE" = enclave && -z "$PROVER_KEY" ]] && echo "::warning::PROVER_KEY secret unset — enclave will run TeeProver::Mock (no real SP1 proofs)"
+          chmod +x scripts/deploy.sh
+          scripts/deploy.sh "${user}@${host}"
+
+      - name: Manifest
+        if: always()
+        env:
+          KATANA_TEE_VERSION: ${{ github.event.inputs.katana_tee_version }}
+          PROVER_SET: ${{ secrets.PROVER_KEY != '' }}
+          HOST_INPUT: ${{ github.event.inputs.host }}
+          HOST_VAR: ${{ vars.DEPLOY_HOST }}
+          USER_VAR: ${{ vars.DEPLOY_USER }}
+          NET: ${{ github.event.inputs.network }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          mkdir -p manifests
+          cfg="$CHAIN_CONFIG_DIR/config.toml"
+          [[ -s "$cfg" ]] || { echo "no chain-config to summarize" >&2; exit 0; }
+          val() { sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"?([^\"]+)\"?.*/\1/p" "$cfg" | head -1; }
+          id_felt=$(val Id)
+          id_ascii=$(python3 -c "h='${id_felt}'[2:]; print(bytes.fromhex(h).decode())")
+          host="${HOST_INPUT:-${HOST_VAR:-$CONF_DEPLOY_HOST}}"; user="${USER_VAR:-$CONF_DEPLOY_USER}"
+          ktv="${KATANA_TEE_VERSION:-$KATANA_TEE_VERSION_DEFAULT}"
+          # mock mode is always mock proving; enclave uses SP1 only when PROVER_KEY is set.
+          prover_mode=$([ "$MODE" = enclave ] && [ "$PROVER_SET" = "true" ] && echo sp1 || echo mock)
+          jq -n \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg ref "$GITHUB_REF_NAME" --arg commit "$GITHUB_SHA" \
+            --arg network "$NET" --arg mode "$MODE" --arg host "$host" --arg user "$user" \
+            --arg ktv "$ktv" --arg pm "$prover_mode" --arg registry "$TEE_REGISTRY_ADDRESS" \
+            --arg unit "$UNIT" --argjson port "$RPC_PORT" \
+            --arg id_ascii "$id_ascii" --arg id_felt "$id_felt" \
+            --arg piltover "$(val core_contract)" --argjson block "$(val block)" \
+            --arg proof "$(val proof_kind)" --arg settle_net "$(val Named)" \
+            --arg voyager "$VOYAGER/contract/$(val core_contract)" \
+            '{workflow:"deploy", network:$network, mode:$mode, run_id:$run_id, run_url:$run_url, ref:$ref, commit:$commit,
+              host:$host, user:$user, unit:$unit, rpc_port:$port,
+              katana_tee_version:$ktv, prover_mode:$pm, tee_registry:$registry,
+              chain:{id_ascii:$id_ascii, id_felt:$id_felt, proof_kind:$proof},
+              settlement:{name:$settle_net, piltover:$piltover, deployment_block:$block, piltover_explorer:$voyager}}' \
+            > "manifests/deploy-${NET}-${MODE}.json"
+          { echo "### Deploy manifest ($NET/$MODE)"; echo '```json'; cat "manifests/deploy-${NET}-${MODE}.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-manifest-${{ github.event.inputs.network }}-${{ github.event.inputs.mode }}
+          path: manifests/deploy-${{ github.event.inputs.network }}-${{ github.event.inputs.mode }}.json
+
+      - name: Commit manifest to repo
+        if: always()
+        env:
+          NET: ${{ github.event.inputs.network }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          [ -f "manifests/deploy-${NET}-${MODE}.json" ] || exit 0
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "manifests/deploy-${NET}-${MODE}.json"
+          git diff --cached --quiet && { echo "manifest unchanged"; exit 0; }
+          git commit -m "chore(ci): deploy manifest ($NET/$MODE) [skip ci]"
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
+            git push origin "HEAD:$GITHUB_REF_NAME" && exit 0
+            echo "push attempt $i failed; retrying…"; sleep 3
+          done
+          echo "::warning::could not push deploy manifest after retries"

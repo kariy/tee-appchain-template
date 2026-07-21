@@ -1,0 +1,128 @@
+name: Init Rollup (one-time)
+
+# Deploys the piltover settlement core on a Starknet settlement network (sepolia|mainnet) for a
+# given MODE (enclave|mock) and generates that (network,mode)'s chain-config (opens a PR).
+# One-time per (network,mode) + REAL gas. Guarded by a combo-specific confirm input.
+#   enclave → wires piltover to the REAL AMDTeeRegistry;  mock → the mock registry.
+# Chain id, settlement RPC, and registry derive from appchain.conf (scripts/lib/config.sh).
+#
+# Secrets: SAYA_ADDRESS, SAYA_PRIVATE_KEY (+ SAYA_ADDRESS_MAINNET/SAYA_PRIVATE_KEY_MAINNET
+#          optional, used for network=mainnet if set)
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Settlement network'
+        required: true
+        type: choice
+        default: sepolia
+        options: [sepolia, mainnet]
+      mode:
+        description: 'enclave (real TEE registry) or mock (mock registry)'
+        required: true
+        type: choice
+        default: enclave
+        options: [enclave, mock]
+      confirm:
+        description: 'Type INIT-<NETWORK>-<MODE> in caps, e.g. INIT-SEPOLIA-ENCLAVE'
+        required: true
+      init_katana_version:
+        description: 'katana release for init rollup (blank = appchain.conf pin). init.sh retries the declare->deploy race automatically.'
+        required: false
+        default: ''
+
+jobs:
+  init:
+    runs-on: ubuntu-latest
+    permissions: { contents: write, pull-requests: write }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve combo (appchain.conf)
+        env:
+          NET: ${{ github.event.inputs.network }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          source scripts/lib/config.sh
+          validate_config
+          emit_github_env "$NET" "$MODE"
+          echo "OUT=chain-config-$NET-$MODE" >> "$GITHUB_ENV"
+          echo "CONFIRM_WANT=INIT-$(echo "$NET-$MODE" | tr a-z A-Z)" >> "$GITHUB_ENV"
+
+      - name: Guard
+        run: |
+          [[ "${{ github.event.inputs.confirm }}" == "$CONFIRM_WANT" ]] \
+            || { echo "ERROR: confirm must equal $CONFIRM_WANT for ${{ github.event.inputs.network }}/${{ github.event.inputs.mode }}" >&2; exit 1; }
+
+      - name: Install katana (init version, native)
+        env:
+          VER_INPUT: ${{ github.event.inputs.init_katana_version }}
+        run: |
+          VER="${VER_INPUT:-$KATANA_VERSION_DEFAULT}"
+          echo "KATANA_INIT_VERSION=$VER" >> "$GITHUB_ENV"
+          url="https://github.com/dojoengine/katana/releases/download/${VER}/katana_${VER}_linux_amd64_native.tar.gz"
+          curl -sSL --max-time 180 "$url" | tar xz
+          sudo install -m755 "$(find . -name katana -type f | head -1)" /usr/local/bin/katana
+          katana --version | head -1
+
+      - name: Init rollup (deploys piltover — gas)
+        env:
+          # NETWORK/MODE/SETTLEMENT_RPC_URL/TEE_REGISTRY_ADDRESS/CHAIN_ID/OUT come from
+          # $GITHUB_ENV (Resolve). Saya prefers the mainnet-specific secret when set.
+          SAYA_ADDRESS: ${{ (github.event.inputs.network == 'mainnet' && secrets.SAYA_ADDRESS_MAINNET) || secrets.SAYA_ADDRESS }}
+          SAYA_PRIVATE_KEY: ${{ (github.event.inputs.network == 'mainnet' && secrets.SAYA_PRIVATE_KEY_MAINNET) || secrets.SAYA_PRIVATE_KEY }}
+          KATANA: katana
+        run: |
+          chmod +x scripts/init.sh
+          scripts/init.sh
+
+      - name: Manifest
+        env:
+          NET: ${{ github.event.inputs.network }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          mkdir -p manifests
+          cfg="$OUT/config.toml"
+          val() { sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"?([^\"]+)\"?.*/\1/p" "$cfg" | head -1; }
+          id_felt=$(val Id)
+          id_ascii=$(python3 -c "h='${id_felt}'[2:]; print(bytes.fromhex(h).decode())")
+          jq -n \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg ref "$GITHUB_REF_NAME" --arg commit "$GITHUB_SHA" \
+            --arg network "$NET" --arg mode "$MODE" --arg katana "$KATANA_INIT_VERSION" \
+            --arg id_ascii "$id_ascii" --arg id_felt "$id_felt" \
+            --arg strk "$(val strk)" --arg proof "$(val proof_kind)" --arg settle_net "$(val Named)" \
+            --arg rpc "$(val rpc_url)" --arg piltover "$(val core_contract)" \
+            --argjson block "$(val block)" --arg registry "$TEE_REGISTRY_ADDRESS" \
+            --arg voyager "$VOYAGER/contract/$(val core_contract)" \
+            '{workflow:"init", network:$network, mode:$mode, run_id:$run_id, run_url:$run_url, ref:$ref, commit:$commit,
+              katana_init_version:$katana,
+              chain:{id_ascii:$id_ascii, id_felt:$id_felt, strk_fee_token:$strk, proof_kind:$proof},
+              settlement:{name:$settle_net, rpc:$rpc, piltover:$piltover, deployment_block:$block,
+                          tee_registry:$registry, piltover_explorer:$voyager}}' \
+            > "manifests/init-${NET}-${MODE}.json"
+          { echo "### Init manifest ($NET/$MODE)"; echo '```json'; cat "manifests/init-${NET}-${MODE}.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: init-manifest-${{ github.event.inputs.network }}-${{ github.event.inputs.mode }}
+          path: manifests/init-${{ github.event.inputs.network }}-${{ github.event.inputs.mode }}.json
+
+      - name: Open PR with chain-config
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NET: ${{ github.event.inputs.network }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          br="init-rollup-${NET}-${MODE}-$(date -u +%Y%m%d%H%M%S)"
+          git checkout -b "$br"
+          git add "$OUT" manifests
+          git commit -m "chore: chain-config + manifest from init rollup ($CHAIN_ID, $NET/$MODE)"
+          git push -u origin "$br"
+          gh pr create --title "Init rollup: $CHAIN_ID chain-config ($NET/$MODE)" \
+            --body "Generated by the Init workflow for **$NET / $MODE**. Verify the piltover address + chain id, then merge. No secrets are committed (\`[settlement.runtime]\` is injected at deploy)."

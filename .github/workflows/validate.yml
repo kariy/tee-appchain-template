@@ -1,0 +1,25 @@
+name: Validate
+
+# Validates the appchain.conf-driven configuration on every push/PR: shell syntax +
+# shellcheck, combo derivation, template rendering (with leak/completeness checks),
+# rendered prometheus/promtail/nginx/compose configs, dashboards, exporters, workflows.
+# Gives instant feedback on an appchain.conf edit before anything touches the host.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base shellcheck jq
+
+      - name: validate.sh
+        run: bash scripts/validate.sh
+
+      - name: actionlint
+        uses: raven-actions/actionlint@v2

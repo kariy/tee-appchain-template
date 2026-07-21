@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# appchainctl — manage an appchain node's lifecycle over SSH.
+#
+# Each (network, mode) combo runs as its own systemd unit on the host (see
+# scripts/lib/config.sh for the derivation). This is a thin SSH wrapper to operate
+# one of them remotely. Run it from your laptop.
+#
+# Combo selection (before the command):
+#   -n <network>   sepolia | mainnet   (default sepolia)
+#   -m <mode>      enclave | mock      (default enclave)
+#
+# Config (env):
+#   APPCHAIN_SSH   user@host of the appchain host (default: $DEPLOY_USER@$DEPLOY_HOST
+#                  from appchain.conf; error if neither is set)
+#   SSH_OPTS       extra ssh flags (optional, word-split)
+#
+# Examples:
+#   appchainctl status                     # sepolia-enclave
+#   appchainctl -n sepolia -m mock logs -f
+#   appchainctl -n mainnet restart
+#   appchainctl reset --confirm            # DESTRUCTIVE: wipe local state + restart
+set -euo pipefail
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/config.sh"
+
+NETWORK=sepolia; MODE=enclave
+while [[ "${1:-}" == -n || "${1:-}" == -m ]]; do
+  case "$1" in
+    -n) NETWORK="${2:?-n needs a network}"; shift 2 ;;
+    -m) MODE="${2:?-m needs a mode}"; shift 2 ;;
+  esac
+done
+resolve_combo "$NETWORK" "$MODE"
+UNIT="$COMBO_UNIT"
+PORT="${APPCHAIN_PORT:-$COMBO_RPC_PORT}"
+BASE="$COMBO_BASE"
+# Local chain state: the mock node keeps a data dir, the enclave a data-disk image.
+case "$MODE" in enclave) DATA_PATH="$BASE/data.img" ;; *) DATA_PATH="$BASE/data" ;; esac
+
+if [[ -z "${APPCHAIN_SSH:-}" && -z "$DEPLOY_HOST" ]]; then
+  echo "error: set APPCHAIN_SSH=user@host or DEPLOY_HOST in appchain.conf" >&2; exit 2
+fi
+SSH_TARGET="${APPCHAIN_SSH:-$DEPLOY_USER@$DEPLOY_HOST}"
+# shellcheck disable=SC2206  # SSH_OPTS is meant to word-split into extra ssh flags.
+SSH=(ssh -o ControlMaster=auto -o ControlPath="$HOME/.ssh/cm-appchain-%r@%h:%p" \
+         -o ControlPersist=60 ${SSH_OPTS:-} "$SSH_TARGET")
+
+rexec()     { "${SSH[@]}"    -- "$*"; }   # non-interactive
+rexec_tty() { "${SSH[@]}" -t -- "$*"; }   # tty: sudo prompts + logs -f
+
+rpc() { # one JSON-RPC call against the host's loopback katana
+  rexec "curl -s --max-time 8 http://localhost:$PORT/ -H 'content-type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":[]}'"
+}
+
+usage() {
+  cat >&2 <<EOF
+usage: appchainctl [-n <network>] [-m <mode>] <cmd>
+       (combo: $COMBO_DEPLOYMENT → unit $UNIT; host: \$APPCHAIN_SSH = $SSH_TARGET)
+  status                systemctl status + chain id + block height
+  logs [-f] [-n N]      journalctl for the appchain unit (-f follows)
+  start | stop | restart
+  reset [--confirm]     wipe local chain state (data-dir) + restart — DESTRUCTIVE
+  exec <cmd...>         run a command on the host
+  shell                 interactive shell on the host
+EOF
+  exit 2
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  status)
+    rexec "sudo systemctl --no-pager --output=short status $UNIT 2>&1 | sed -n '1,5p'" || true
+    echo "  chainId : $(rpc starknet_chainId)"
+    echo "  block   : $(rpc starknet_blockNumber)"
+    ;;
+  logs)
+    foll=""; n="80"
+    while [[ $# -gt 0 ]]; do case "$1" in -f|--follow) foll="-f";; -n) n="${2:-80}"; shift;; esac; shift; done
+    if [[ -n "$foll" ]]; then rexec_tty "journalctl -u $UNIT -n $n -f"
+    else rexec "journalctl -u $UNIT -n $n --no-pager"; fi
+    ;;
+  start|stop|restart)
+    rexec_tty "sudo systemctl $cmd $UNIT"
+    echo "$cmd → is-active=$(rexec "systemctl is-active $UNIT" || true)"
+    ;;
+  reset)
+    if [[ "${1:-}" != "--confirm" ]]; then
+      cat >&2 <<EOF
+reset is DESTRUCTIVE: it stops the node, wipes its local state ($DATA_PATH), and
+restarts from genesis. Deployed contracts/worlds are lost, and the chain will diverge
+from the already-settled piltover (settlement will error until the rollup is re-init'd
+with a fresh piltover). For a clean full reset, run the Init workflow (init.yml) instead.
+
+To wipe local state anyway:  appchainctl -n $NETWORK -m $MODE reset --confirm
+EOF
+      exit 2
+    fi
+    rexec_tty "sudo systemctl stop $UNIT && sudo rm -rf $DATA_PATH && sudo systemctl start $UNIT"
+    echo "reset done — restarted from genesis (settlement may error vs the live piltover; re-init for a clean chain)"
+    ;;
+  exec)  [[ $# -ge 1 ]] || usage; rexec_tty "$*" ;;
+  shell) "${SSH[@]}" -t -- "exec \"\$SHELL\" -l" ;;
+  ""|-h|--help) usage ;;
+  *) echo "appchainctl: unknown command '$cmd'" >&2; usage ;;
+esac

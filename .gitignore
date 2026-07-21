@@ -1,0 +1,8 @@
+# Local runner / debug noise
+.DS_Store
+*.swp
+
+# Anything an operator stages locally for a manual deploy.sh run
+staging/
+.env
+__pycache__/

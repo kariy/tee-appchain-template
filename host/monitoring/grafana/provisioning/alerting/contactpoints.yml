@@ -1,0 +1,19 @@
+apiVersion: 1
+# Slack webhook comes from the SLACK_WEBHOOK_URL env (set in the host ./.env → grafana container).
+#
+# Compact message template: balance alerts (those with a `balance` annotation,
+# see rules.yml) render as one line each — balance · account · network ·
+# deployment; every other alert falls back to its `summary` annotation.
+contactPoints:
+  - orgId: 1
+    name: slack
+    receivers:
+      - uid: slack_appchain
+        type: slack
+        settings:
+          url: ${SLACK_WEBHOOK_URL}
+          title: '{{ if eq .Status "firing" }}🔴{{ else }}✅ Resolved:{{ end }} {{ .CommonLabels.alertname }}'
+          text: |-
+            {{ range .Alerts }}{{ if .Annotations.balance }}{{ .Annotations.balance }} (threshold {{ .Annotations.threshold }}) · `{{ .Labels.account }}` · {{ .Labels.network }} · {{ or .Labels.deployment "-" }}{{ else }}{{ .Annotations.summary }}{{ end }}
+            {{ end }}
+        disableResolveMessage: false

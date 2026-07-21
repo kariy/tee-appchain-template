@@ -1,0 +1,12 @@
+modules:
+  # katana health: GET / returns 200 + {"health":true} on the RPC port (no JSON-RPC body needed).
+  starknet_health:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_body_not_matches_regexp:
+        - '"health"\s*:\s*true'
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
