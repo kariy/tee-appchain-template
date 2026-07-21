@@ -69,9 +69,13 @@ jobs:
       - name: Init rollup (deploys piltover — gas)
         env:
           # NETWORK/MODE/SETTLEMENT_RPC_URL/TEE_REGISTRY_ADDRESS/CHAIN_ID/OUT come from
-          # $GITHUB_ENV (Resolve). The per-network settlement secret is selected by the network input.
-          SETTLEMENT_ADDRESS: ${{ (github.event.inputs.network == 'mainnet' && secrets.SETTLEMENT_ADDRESS_MAINNET) || secrets.SETTLEMENT_ADDRESS_SEPOLIA }}
-          SETTLEMENT_PRIVATE_KEY: ${{ (github.event.inputs.network == 'mainnet' && secrets.SETTLEMENT_PRIVATE_KEY_MAINNET) || secrets.SETTLEMENT_PRIVATE_KEY_SEPOLIA }}
+          # $GITHUB_ENV (Resolve). Both per-network settlement pairs are passed through;
+          # init.sh picks the one matching NETWORK (resolve_settlement_account) and fails
+          # loudly if that pair is unset — no silent cross-network fallback.
+          SETTLEMENT_ADDRESS_SEPOLIA: ${{ secrets.SETTLEMENT_ADDRESS_SEPOLIA }}
+          SETTLEMENT_PRIVATE_KEY_SEPOLIA: ${{ secrets.SETTLEMENT_PRIVATE_KEY_SEPOLIA }}
+          SETTLEMENT_ADDRESS_MAINNET: ${{ secrets.SETTLEMENT_ADDRESS_MAINNET }}
+          SETTLEMENT_PRIVATE_KEY_MAINNET: ${{ secrets.SETTLEMENT_PRIVATE_KEY_MAINNET }}
           KATANA: katana
         run: |
           chmod +x scripts/init.sh
